@@ -9,9 +9,9 @@ RUN pip install -r requirements.txt
 
 RUN pip install aws-opentelemetry-distro==0.10.0
 
-# Set AWS region environment variable
-ENV AWS_REGION=us-east-1
-ENV AWS_DEFAULT_REGION=us-east-1
+# AWS_REGION and credentials should be passed at runtime via task IAM roles
+# or container orchestration, not baked into the image (T2/T10).
+# Example: docker run -e AWS_REGION=us-east-1 ...
 
 # Signal that this is running in Docker for host binding logic
 ENV DOCKER_CONTAINER=1

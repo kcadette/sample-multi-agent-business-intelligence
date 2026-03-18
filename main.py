@@ -11,14 +11,64 @@ Usage (deploy): agentcore configure --entrypoint main.py && agentcore launch
 Usage (client): python client.py
 """
 
+import json
+import logging
+import re
+import secrets
+import time
+import urllib.parse
+import urllib.request
+from collections import OrderedDict, defaultdict
+
 from strands import Agent, tool
 from strands.models import BedrockModel
 from strands.agent.conversation_manager import SlidingWindowConversationManager
-from strands_tools import http_request
+
+# --- M3/T8: Audit Logging ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger("agentcore.audit")
 
 
-# --- Web Search Tool (DuckDuckGo) ---
+# --- M5/T4: Input Validation ---
+def sanitize_company_name(name: str) -> str:
+    """Validate and sanitize company name input."""
+    if not name or len(name) > 200:
+        raise ValueError("Company name must be 1-200 characters")
+    sanitized = re.sub(r"[^a-zA-Z0-9\s\-\.\&\,\']", '', name).strip()
+    if not sanitized:
+        raise ValueError("Company name contains only invalid characters")
+    return sanitized
 
+
+# --- M9/T6: SSRF Protection ---
+ALLOWED_SEARCH_HOSTS = {"api.duckduckgo.com"}
+
+
+def _validate_url(url: str) -> str:
+    """Validate URL against allowlist to prevent SSRF."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.hostname not in ALLOWED_SEARCH_HOSTS:
+        raise ValueError(f"Blocked: {parsed.hostname} not in allowlist")
+    if parsed.scheme != "https":
+        raise ValueError("Only HTTPS URLs are allowed")
+    return url
+
+
+# --- M10/T9: Response Validation ---
+def _validate_search_response(result: str, max_length: int = 50000) -> str:
+    """Validate and truncate search responses."""
+    if len(result) > max_length:
+        result = result[:max_length]
+    try:
+        data = json.loads(result)
+        if not isinstance(data, dict):
+            return "Search returned invalid format"
+    except json.JSONDecodeError:
+        pass  # Non-JSON responses are acceptable from DDG
+    return result
+
+
+# --- M13/T13: Direct HTTP Web Search (no nested agent) ---
 @tool
 def web_search(query: str) -> str:
     """Search the web using DuckDuckGo and return results.
@@ -26,17 +76,19 @@ def web_search(query: str) -> str:
     Args:
         query: The search query string
     """
-    import urllib.parse
-    import json
-
     url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1"
-    agent = Agent(
-        model=BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", temperature=0.0),
-        system_prompt="You are a helper. Use the http_request tool to fetch the given URL and return the raw response.",
-        tools=[http_request],
-    )
-    result = str(agent(f"Make a GET request to this URL and return the response body: {url}"))
-    return result
+    _validate_url(url)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "AgentCore/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8")
+        return _validate_search_response(raw)
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.warning(f"SEARCH_FAILED query={query[:50]} error={e}")
+        return f"Search failed: {e}"
+
 
 # --- Models ---
 RESEARCH_MODEL = BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", temperature=0.2)
@@ -58,12 +110,12 @@ def financial_analyst(company: str) -> str:
         system_prompt="""You are a financial research specialist. Analyze the company's financial
 performance, revenue trends, market cap, and fiscal health over the last 3 years.
 
-You have web_search and http_request tools. USE THEM to find real, current data.
+You have a web_search tool. USE IT to find real, current data.
 Search for things like "[company] annual revenue", "[company] 10-K SEC filing", "[company] financial results".
 
 Follow: SEARCH for data → EVALUATE credibility → CITE sources with URLs → ASSESS completeness.
 Output 3-5 key findings with citations and a confidence level (high/medium/low).""",
-        tools=[web_search, http_request],
+        tools=[web_search],
     )
     return str(agent(f"Analyze the financial performance of {company}."))
 
@@ -82,12 +134,12 @@ def competitive_analyst(company: str) -> str:
         system_prompt="""You are a competitive intelligence specialist. Analyze the company's
 market positioning, key competitors, industry trends, and technology landscape.
 
-You have web_search and http_request tools. USE THEM to find real, current data.
+You have a web_search tool. USE IT to find real, current data.
 Search for things like "[company] competitors", "[company] market share", "[company] industry analysis".
 
 Follow: SEARCH for data → EVALUATE credibility → CITE sources with URLs → ASSESS completeness.
 Output 3-5 key findings with citations and a confidence level (high/medium/low).""",
-        tools=[web_search, http_request],
+        tools=[web_search],
     )
     return str(agent(f"Analyze the competitive landscape and market position of {company}."))
 
@@ -170,28 +222,103 @@ def create_chat_agent(tai_report: str, opportunity_report: str) -> Agent:
     )
 
 
-# --- Request Handler ---
+# --- M11/T11: Bounded Session Store with TTL & LRU Eviction ---
 
-_sessions: dict = {}
+MAX_SESSIONS = 100
+SESSION_TTL = 3600  # 1 hour
+
+
+class SessionStore:
+    def __init__(self, max_size=MAX_SESSIONS, ttl=SESSION_TTL):
+        self._store = OrderedDict()
+        self._timestamps = {}
+        self._max = max_size
+        self._ttl = ttl
+
+    def set(self, key, value):
+        self._evict_expired()
+        if key in self._store:
+            del self._store[key]
+        elif len(self._store) >= self._max:
+            oldest_key, _ = self._store.popitem(last=False)
+            self._timestamps.pop(oldest_key, None)
+            logger.info(f"SESSION_EVICTED session={oldest_key} reason=lru")
+        self._store[key] = value
+        self._timestamps[key] = time.time()
+
+    def get(self, key):
+        self._evict_expired()
+        return self._store.get(key)
+
+    def __contains__(self, key):
+        self._evict_expired()
+        return key in self._store
+
+    def _evict_expired(self):
+        now = time.time()
+        expired = [k for k, t in self._timestamps.items() if now - t > self._ttl]
+        for k in expired:
+            self._store.pop(k, None)
+            self._timestamps.pop(k, None)
+            logger.info(f"SESSION_EVICTED session={k} reason=ttl")
+
+
+_sessions = SessionStore()
+
+
+# --- M2/T3: Rate Limiting ---
+
+_rate_limits = defaultdict(list)
+MAX_REQUESTS_PER_MINUTE = 5
+
+
+def _check_rate_limit(client_id: str) -> bool:
+    now = time.time()
+    _rate_limits[client_id] = [t for t in _rate_limits[client_id] if now - t < 60]
+    if len(_rate_limits[client_id]) >= MAX_REQUESTS_PER_MINUTE:
+        return False
+    _rate_limits[client_id].append(now)
+    return True
+
+
+# --- Request Handler ---
 
 
 def handle_request(payload: dict) -> dict:
     mode = payload.get("mode", "analyze")
-    session_id = payload.get("session_id", "default")
+    client_id = payload.get("client_id", "anonymous")
+    logger.info(f"REQUEST mode={mode} client={client_id}")
+
+    # M2/T3: Rate limiting
+    if not _check_rate_limit(client_id):
+        logger.warning(f"RATE_LIMITED client={client_id}")
+        return {"error": "Rate limit exceeded. Max 5 requests per minute."}
 
     if mode == "analyze":
-        company = payload.get("company", "")
-        if not company:
-            return {"error": "Missing 'company' in payload"}
+        company_raw = payload.get("company", "")
+
+        # M5/T4: Input validation
+        try:
+            company = sanitize_company_name(company_raw)
+        except ValueError as e:
+            logger.warning(f"INVALID_INPUT company={company_raw[:50]} error={e}")
+            return {"error": str(e)}
+
+        # M1/T1: Server-side cryptographic session ID
+        session_id = secrets.token_hex(16)
+
+        logger.info(f"ANALYZE company={company} session={session_id}")
 
         tai_report = run_research_phase(company)
         opportunity_report = run_innovation_phase(tai_report)
 
-        _sessions[session_id] = {
+        _sessions.set(session_id, {
             "tai_report": tai_report,
             "opportunity_report": opportunity_report,
             "chat_agent": create_chat_agent(tai_report, opportunity_report),
-        }
+        })
+
+        logger.info(f"ANALYZE_COMPLETE session={session_id}")
 
         return {
             "tai_report": tai_report,
@@ -204,13 +331,19 @@ def handle_request(payload: dict) -> dict:
         if not message:
             return {"error": "Missing 'message' in payload"}
 
-        session = _sessions.get(session_id)
-        if not session:
-            return {"error": f"No analysis found for session '{session_id}'. Run 'analyze' first."}
+        # M7/T1: Validate session exists
+        session_id = payload.get("session_id", "")
+        if not session_id or session_id not in _sessions:
+            logger.warning(f"INVALID_SESSION session={session_id}")
+            return {"error": "Invalid or expired session ID"}
 
+        session = _sessions.get(session_id)
+
+        logger.info(f"CHAT session={session_id}")
         response = session["chat_agent"](message)
         return {"response": str(response), "session_id": session_id}
 
+    logger.warning(f"UNKNOWN_MODE mode={mode}")
     return {"error": f"Unknown mode '{mode}'. Use 'analyze' or 'chat'."}
 
 
