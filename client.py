@@ -1,3 +1,5 @@
+# Copyright © Amazon.com and Affiliates: This deliverable is considered Developed Content as defined in the AWS Service Terms.
+
 """
 CLI client for the AgentCore-deployed multi-agent system.
 Talks to the deployed runtime via boto3.

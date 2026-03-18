@@ -1,0 +1,67 @@
+Multi-Agent Business Intelligence - Third-Party Licenses
+================================================================
+
+This project uses the following third-party dependencies:
+
+1. strands-agents
+   License: Apache License 2.0
+   Copyright: Amazon Web Services
+   URL: https://github.com/strands-agents/sdk-python
+
+2. strands-agents-tools
+   License: Apache License 2.0
+   Copyright: Strands Agents Community
+   URL: https://github.com/strands-agents/tools
+
+3. boto3
+   License: Apache License 2.0
+   Copyright: Amazon Web Services
+   URL: https://github.com/boto/boto3
+
+4. bedrock-agentcore
+   License: Amazon Software License / Apache License 2.0
+   Copyright: Amazon Web Services
+   URL: https://aws.amazon.com/bedrock/agentcore/
+
+5. aws-opentelemetry-distro
+   License: Apache License 2.0
+   Copyright: Amazon Web Services / OpenTelemetry Community
+   URL: https://github.com/aws-observability/aws-otel-python
+
+================================================================
+Apache License 2.0
+================================================================
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+================================================================
+Amazon Software License
+================================================================
+
+Amazon Software License 1.0
+
+This Amazon Software License ("License") governs your use, reproduction,
+and distribution of the accompanying software as specified below.
+
+1. Definitions
+"Licensor" means any person or entity that distributes its Work under
+this License.
+
+"Software" means the original work of authorship made available under
+this License.
+
+"Work" means the Software and any additions to or derivative works of
+the Software that are made available under this License.
+
+For full license text, visit:
+https://aws.amazon.com/asl/

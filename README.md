@@ -1,3 +1,5 @@
+<!-- Copyright © Amazon.com and Affiliates: This deliverable is considered Developed Content as defined in the AWS Service Terms. -->
+
 # Multi-Agent Business Intelligence
 
 A multi-agent system that automates business development research and opportunity discovery using [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and [Amazon Bedrock](https://aws.amazon.com/bedrock/). Deploys as a single [Amazon Bedrock AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html) runtime.

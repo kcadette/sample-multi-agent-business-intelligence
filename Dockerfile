@@ -1,23 +1,17 @@
-FROM public.ecr.aws/docker/library/python:3.11-slim
+# Copyright © Amazon.com and Affiliates: This deliverable is considered Developed Content as defined in the AWS Service Terms.
+
+FROM public.ecr.aws/docker/library/python:3.11.10-slim
 WORKDIR /app
-
-
 
 COPY requirements.txt requirements.txt
 # Install from requirements file
 RUN pip install -r requirements.txt
 
-
-
-
-RUN pip install aws-opentelemetry-distro>=0.10.0
-
+RUN pip install aws-opentelemetry-distro==0.10.0
 
 # Set AWS region environment variable
-
 ENV AWS_REGION=us-east-1
 ENV AWS_DEFAULT_REGION=us-east-1
-
 
 # Signal that this is running in Docker for host binding logic
 ENV DOCKER_CONTAINER=1
@@ -32,6 +26,8 @@ EXPOSE 8000
 # Copy entire project (respecting .dockerignore)
 COPY . .
 
-# Use the full module path
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)" || exit 1
 
 CMD ["opentelemetry-instrument", "python", "-m", "main"]

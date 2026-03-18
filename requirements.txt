@@ -1,4 +1,6 @@
-strands-agents
-strands-agents-tools
-boto3
-bedrock-agentcore
+# Copyright © Amazon.com and Affiliates: This deliverable is considered Developed Content as defined in the AWS Service Terms.
+
+strands-agents==0.5.0
+strands-agents-tools==0.3.0
+boto3==1.40.20
+bedrock-agentcore==0.2.0
