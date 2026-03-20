@@ -17,7 +17,8 @@ import re
 import secrets
 import time
 import urllib.parse
-import urllib.request
+
+import requests as http_requests
 from collections import OrderedDict, defaultdict
 
 from strands import Agent, tool
@@ -79,13 +80,13 @@ def web_search(query: str) -> str:
     url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1"
     _validate_url(url)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "AgentCore/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("utf-8")
+        resp = http_requests.get(url, headers={"User-Agent": "AgentCore/1.0"}, timeout=10)
+        resp.raise_for_status()
+        raw = resp.text
         return _validate_search_response(raw)
     except ValueError:
         raise
-    except Exception as e:
+    except http_requests.RequestException as e:
         logger.warning(f"SEARCH_FAILED query={query[:50]} error={e}")
         return f"Search failed: {e}"
 
