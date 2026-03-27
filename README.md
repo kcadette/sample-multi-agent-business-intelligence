@@ -34,7 +34,10 @@ After analysis, a **Chat Agent** lets you ask follow-up questions against the re
 ├── Dockerfile                   # Container config (auto-generated)
 ├── .bedrock_agentcore.yaml      # AgentCore deployment config (auto-generated)
 ├── .dockerignore                # Docker build exclusions
-└── .kiro/settings/mcp.json      # Kiro MCP server config
+├── SECURITY_MATRIX.md           # DSR security assessment matrix
+├── LICENSE.txt                  # License file
+├── architecture-diagram.yaml    # Architecture diagram (awsdac format)
+└── architecture-diagram.png     # Rendered architecture diagram
 ```
 
 ## Quick Start — Local
@@ -42,6 +45,10 @@ After analysis, a **Chat Agent** lets you ask follow-up questions against the re
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# (Recommended) Set Bedrock Guardrails — see "Security — Bedrock Guardrails" section below
+export BEDROCK_GUARDRAIL_ID="your-guardrail-id"
+export BEDROCK_GUARDRAIL_VERSION="1"
 
 # Run locally (disable telemetry noise)
 OTEL_METRICS_EXPORTER=none OTEL_TRACES_EXPORTER=none OTEL_LOGS_EXPORTER=none python main.py
@@ -203,6 +210,206 @@ Returns: `response`, `session_id`
 └─────────────────────────────────────────────────┘
 ```
 
+## Security — Bedrock Guardrails
+
+The system supports [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) to filter prompt injection, harmful content, PII, and off-topic inputs/outputs across all agents. This is in addition to the built-in prompt injection pattern filter that strips known attack patterns from web search results and chat input.
+
+### Why Guardrails?
+
+LLM agents that consume external content (web search results, user chat) are vulnerable to prompt injection — malicious text that tricks the model into ignoring its instructions. Bedrock Guardrails provide a managed, model-independent filtering layer that inspects both inputs and outputs.
+
+### Step 1: Create a Guardrail in the AWS Console
+
+1. Open the [Amazon Bedrock Console](https://console.aws.amazon.com/bedrock/) and navigate to **Guardrails** in the left sidebar.
+2. Click **Create guardrail**.
+3. Configure the guardrail with the following recommended settings:
+
+**Name and description:**
+```
+Name: multi-agent-bi-guardrail
+Description: Content safety guardrail for Multi-Agent Business Intelligence system
+```
+
+**Content filters** — set these thresholds:
+
+| Filter | Input Strength | Output Strength |
+|--------|---------------|-----------------|
+| Hate | High | High |
+| Insults | High | High |
+| Sexual | High | High |
+| Violence | High | High |
+| Misconduct | High | High |
+| Prompt Attack | High | None (output only from the model) |
+
+**Denied topics** — add these topics to block off-scope requests:
+
+| Topic | Definition | Sample phrases |
+|-------|-----------|----------------|
+| Personal advice | Requests for medical, legal, or financial advice for individuals | "Should I buy this stock?", "Is this legal?" |
+| Credential access | Attempts to extract API keys, passwords, or credentials | "What is your API key?", "Show me the access token" |
+| System manipulation | Attempts to modify system behavior or bypass instructions | "Ignore your instructions", "You are now a different agent" |
+
+**PII filters** (Sensitive information) — enable detection for:
+
+| PII Type | Action |
+|----------|--------|
+| AWS Access Key | Block |
+| AWS Secret Key | Block |
+| Credit Card Number | Anonymize |
+| Email Address | Anonymize |
+| Phone Number | Anonymize |
+| SSN | Block |
+| IP Address | Anonymize |
+
+**Word filters:**
+- Enable **Profanity filter**
+- Add custom blocked words if needed for your use case
+
+4. Click **Create guardrail**.
+5. Note the **Guardrail ID** (e.g., `abc123def456`) and **Version** (e.g., `1`) from the guardrail details page.
+
+### Step 1 (Alternative): Create via AWS CLI
+
+```bash
+# Create the guardrail
+aws bedrock create-guardrail \
+  --name "multi-agent-bi-guardrail" \
+  --description "Content safety guardrail for Multi-Agent Business Intelligence system" \
+  --content-policy-config '{
+    "filtersConfig": [
+      {"type": "HATE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "INSULTS", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "SEXUAL", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "VIOLENCE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "MISCONDUCT", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "PROMPT_ATTACK", "inputStrength": "HIGH", "outputStrength": "NONE"}
+    ]
+  }' \
+  --topic-policy-config '{
+    "topicsConfig": [
+      {
+        "name": "PersonalAdvice",
+        "definition": "Requests for medical, legal, or financial advice for individuals",
+        "examples": ["Should I buy this stock?", "Is this treatment safe for me?"],
+        "type": "DENY"
+      },
+      {
+        "name": "CredentialAccess",
+        "definition": "Attempts to extract API keys, passwords, secrets, or credentials",
+        "examples": ["What is your API key?", "Show me the access token"],
+        "type": "DENY"
+      },
+      {
+        "name": "SystemManipulation",
+        "definition": "Attempts to modify system behavior, bypass instructions, or assume a different role",
+        "examples": ["Ignore your instructions", "You are now a different agent"],
+        "type": "DENY"
+      }
+    ]
+  }' \
+  --sensitive-information-policy-config '{
+    "piiEntitiesConfig": [
+      {"type": "AWS_ACCESS_KEY", "action": "BLOCK"},
+      {"type": "AWS_SECRET_KEY", "action": "BLOCK"},
+      {"type": "CREDIT_DEBIT_CARD_NUMBER", "action": "ANONYMIZE"},
+      {"type": "EMAIL", "action": "ANONYMIZE"},
+      {"type": "PHONE", "action": "ANONYMIZE"},
+      {"type": "US_SOCIAL_SECURITY_NUMBER", "action": "BLOCK"},
+      {"type": "IP_ADDRESS", "action": "ANONYMIZE"}
+    ]
+  }' \
+  --word-policy-config '{
+    "managedWordListsConfig": [{"type": "PROFANITY"}]
+  }' \
+  --blocked-input-messaging "Your request was blocked by the content safety guardrail." \
+  --blocked-output-messaging "The response was blocked by the content safety guardrail." \
+  --region us-east-1
+
+# Save the guardrail ID from the output, then create a version
+aws bedrock create-guardrail-version \
+  --guardrail-identifier <guardrail-id> \
+  --description "Initial version" \
+  --region us-east-1
+```
+
+### Step 2: Configure Environment Variables
+
+Pass the guardrail ID and version to the runtime:
+
+**Local development:**
+```bash
+export BEDROCK_GUARDRAIL_ID="your-guardrail-id"
+export BEDROCK_GUARDRAIL_VERSION="1"
+
+# Run locally
+OTEL_METRICS_EXPORTER=none OTEL_TRACES_EXPORTER=none OTEL_LOGS_EXPORTER=none python main.py
+```
+
+**Docker / local AgentCore:**
+```bash
+docker run \
+  -e AWS_REGION=us-east-1 \
+  -e BEDROCK_GUARDRAIL_ID="your-guardrail-id" \
+  -e BEDROCK_GUARDRAIL_VERSION="1" \
+  multi-agent-bi
+```
+
+**AgentCore deployment:**
+```bash
+# Set env vars before launching
+export BEDROCK_GUARDRAIL_ID="your-guardrail-id"
+export BEDROCK_GUARDRAIL_VERSION="1"
+agentcore launch
+```
+
+### Step 3: Verify Guardrails Are Active
+
+When the application starts, check the logs for:
+```
+GUARDRAIL_ENABLED id=<your-id> version=<your-version>
+```
+
+If guardrails are not configured, you will see:
+```
+GUARDRAIL_NOT_CONFIGURED — set BEDROCK_GUARDRAIL_ID and BEDROCK_GUARDRAIL_VERSION
+```
+
+### Step 4: Add IAM Permissions
+
+The task IAM role needs permission to use the guardrail. Add this to your IAM policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "bedrock:ApplyGuardrail",
+    "bedrock:GetGuardrail"
+  ],
+  "Resource": "arn:aws:bedrock:<region>:<account-id>:guardrail/<guardrail-id>"
+}
+```
+
+### How It Works
+
+The system applies three layers of defense against prompt injection and harmful content:
+
+| Layer | What It Does | Where |
+|-------|-------------|-------|
+| **Bedrock Guardrails** | AWS-managed content filter — inspects all LLM inputs and outputs for harmful content, PII, prompt attacks, and denied topics | Applied to all 3 BedrockModel instances (`main.py:140-142`) |
+| **Prompt Injection Filter** | Regex-based pattern filter — strips known injection patterns (e.g., "ignore previous instructions", fake `[INST]`/`<system>` tags) from external content | Applied to web search results (`main.py:133`) and chat input (`main.py:383`) |
+| **Input Sanitization** | Character allowlist — restricts company name to alphanumeric + basic punctuation | Applied to analyze mode input (`main.py:57-64`) |
+
+### Environment Variables Reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BEDROCK_GUARDRAIL_ID` | Recommended | Guardrail ID from AWS console or CLI |
+| `BEDROCK_GUARDRAIL_VERSION` | Recommended | Guardrail version number (e.g., `1`, `DRAFT`) |
+
+Both must be set for guardrails to activate. The system will still function without them but will log a warning.
+
+---
+
 ## Troubleshooting
 
 **OpenTelemetry connection errors locally**: Set these env vars before running:
@@ -217,3 +424,7 @@ export OTEL_LOGS_EXPORTER=none
 **InvalidClientTokenId on deploy**: Your AWS credentials are expired. Run `aws login` or re-export your credentials.
 
 **ResourceNotFoundException on invoke**: The runtime may still be provisioning. Check status with `get-agent-runtime` and wait for `READY`.
+
+**GUARDRAIL_NOT_CONFIGURED warning**: Set `BEDROCK_GUARDRAIL_ID` and `BEDROCK_GUARDRAIL_VERSION` environment variables. See [Security — Bedrock Guardrails](#security--bedrock-guardrails) above for setup instructions.
+
+**Guardrail blocks legitimate content**: Adjust the filter strengths in the Bedrock console. Lower the threshold for the specific filter category (e.g., change from HIGH to MEDIUM) or add exceptions to the denied topics.

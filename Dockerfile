@@ -13,6 +13,9 @@ RUN pip install aws-opentelemetry-distro==0.10.0
 # or container orchestration, not baked into the image (T2/T10).
 # Example: docker run -e AWS_REGION=us-east-1 ...
 
+# BDR4: Bedrock Guardrails — pass guardrail ID and version at runtime.
+# Example: docker run -e BEDROCK_GUARDRAIL_ID=abc123 -e BEDROCK_GUARDRAIL_VERSION=1 ...
+
 # Signal that this is running in Docker for host binding logic
 ENV DOCKER_CONTAINER=1
 

@@ -13,6 +13,7 @@ Usage (client): python client.py
 
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -28,6 +29,28 @@ from strands.agent.conversation_manager import SlidingWindowConversationManager
 # --- M3/T8: Audit Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger("agentcore.audit")
+
+
+# --- BDR4: Bedrock Guardrails Configuration ---
+GUARDRAIL_ID = os.environ.get("BEDROCK_GUARDRAIL_ID", "")
+GUARDRAIL_VERSION = os.environ.get("BEDROCK_GUARDRAIL_VERSION", "")
+
+
+def _guardrail_config() -> dict:
+    """Return guardrail kwargs for BedrockModel if configured via environment."""
+    if GUARDRAIL_ID and GUARDRAIL_VERSION:
+        logger.info(f"GUARDRAIL_ENABLED id={GUARDRAIL_ID} version={GUARDRAIL_VERSION}")
+        return {
+            "guardrail_id": GUARDRAIL_ID,
+            "guardrail_version": GUARDRAIL_VERSION,
+            "guardrail_trace": "enabled",
+            "guardrail_redact_input": True,
+            "guardrail_redact_input_message": "[Input blocked by content guardrail.]",
+            "guardrail_redact_output": True,
+            "guardrail_redact_output_message": "[Output blocked by content guardrail.]",
+        }
+    logger.warning("GUARDRAIL_NOT_CONFIGURED — set BEDROCK_GUARDRAIL_ID and BEDROCK_GUARDRAIL_VERSION")
+    return {}
 
 
 # --- M5/T4: Input Validation ---
@@ -69,6 +92,29 @@ def _validate_search_response(result: str, max_length: int = 50000) -> str:
     return result
 
 
+# --- BDR4: Content Filtering for Web Search Results ---
+_PROMPT_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+(a|an|the)\s+", re.IGNORECASE),
+    re.compile(r"new\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"system\s*:\s*you\s+are", re.IGNORECASE),
+    re.compile(r"\[INST\]|\[/INST\]|<<SYS>>|<\|im_start\|>", re.IGNORECASE),
+    re.compile(r"<\s*/?\s*(?:system|instruction|prompt)\s*>", re.IGNORECASE),
+]
+
+
+def _filter_prompt_injection(text: str) -> str:
+    """Strip prompt injection patterns from external content before passing to agents."""
+    filtered = text
+    for pattern in _PROMPT_INJECTION_PATTERNS:
+        match = pattern.search(filtered)
+        if match:
+            logger.warning(f"PROMPT_INJECTION_FILTERED pattern={pattern.pattern[:60]}")
+            filtered = pattern.sub("[content filtered]", filtered)
+    return filtered
+
+
 # --- M13/T13: Direct HTTP Web Search (no nested agent) ---
 @tool
 def web_search(query: str) -> str:
@@ -83,7 +129,8 @@ def web_search(query: str) -> str:
         resp = http_requests.get(url, headers={"User-Agent": "AgentCore/1.0"}, timeout=10)
         resp.raise_for_status()
         raw = resp.text
-        return _validate_search_response(raw)
+        validated = _validate_search_response(raw)
+        return _filter_prompt_injection(validated)
     except ValueError:
         raise
     except http_requests.RequestException as e:
@@ -91,10 +138,11 @@ def web_search(query: str) -> str:
         return f"Search failed: {e}"
 
 
-# --- Models ---
-RESEARCH_MODEL = BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", temperature=0.2)
-SYNTHESIS_MODEL = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", temperature=0.3)
-CREATIVE_MODEL = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", temperature=0.7)
+# --- Models (BDR4: Bedrock Guardrails applied to all models) ---
+_guardrails = _guardrail_config()
+RESEARCH_MODEL = BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", temperature=0.2, **_guardrails)
+SYNTHESIS_MODEL = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", temperature=0.3, **_guardrails)
+CREATIVE_MODEL = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", temperature=0.7, **_guardrails)
 
 
 # --- Agent 1: Financial Research ---
@@ -331,6 +379,9 @@ def handle_request(payload: dict) -> dict:
         message = payload.get("message", "")
         if not message:
             return {"error": "Missing 'message' in payload"}
+
+        # BDR4: Filter prompt injection attempts in chat input
+        message = _filter_prompt_injection(message)
 
         # M7/T1: Validate session exists
         session_id = payload.get("session_id", "")
