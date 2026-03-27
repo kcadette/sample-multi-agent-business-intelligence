@@ -1,0 +1,349 @@
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: horizontal
+      Children:
+        - UserColumn
+        - ClientColumn
+        - OrchestratorColumn
+        - ToolsColumn
+
+    # =========================================
+    # COLUMN 1 — User
+    # =========================================
+    UserColumn:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - UserActor
+
+    UserActor:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "User"
+
+    # =========================================
+    # COLUMN 2 — Client
+    # =========================================
+    ClientColumn:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - ClientApp
+
+    ClientApp:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Elastic Container Service (Amazon ECS)"
+      Title: "Developer CLI\n(client.py)"
+
+    # =========================================
+    # COLUMN 3 — Orchestrators (inside AWS Cloud)
+    # =========================================
+    OrchestratorColumn:
+      Type: AWS::Diagram::Cloud
+      Preset: AWSCloudNoLogo
+      Direction: vertical
+      Align: center
+      Children:
+        - OrchestratorRegion
+
+    OrchestratorRegion:
+      Type: AWS::Region
+      Title: "us-east-1"
+      Direction: vertical
+      Children:
+        - InfraRow
+        - RouterRow
+        - AgentRow
+        - ModelRow
+
+    # --- Infrastructure Services ---
+    InfraRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - IAMRole
+        - CloudWatch
+        - ECRRepo
+
+    IAMRole:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Identity and Access Management (IAM)"
+      Title: "Task IAM Role"
+
+    CloudWatch:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon CloudWatch"
+      Title: "CloudWatch Logs\n+ OpenTelemetry"
+
+    ECRRepo:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Elastic Container Registry (Amazon ECR)"
+      Title: "ECR Repository\n(Docker Image)"
+
+    # --- Request Router ---
+    RouterRow:
+      Type: AWS::Diagram::VerticalStack
+      Title: "Amazon Bedrock AgentCore Runtime"
+      Children:
+        - RequestRouter
+
+    RequestRouter:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Step Functions"
+      Title: "Request Router\n(Rate Limiter + Input Validator\n+ Session Store)"
+
+    # --- Agent Orchestrators (use Lambda icon to distinguish) ---
+    AgentRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - ResearchPhase
+        - InnovationPhase
+        - ChatPhase
+
+    ResearchPhase:
+      Type: AWS::Diagram::VerticalStack
+      Title: "Phase 1: Research"
+      Children:
+        - AnalystOrchestrator
+        - SubAgentStack
+
+    AnalystOrchestrator:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon SageMaker AI"
+      Title: "Analyst Orchestrator\n(Claude Sonnet)"
+
+    SubAgentStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - FinancialAnalyst
+        - CompetitiveAnalyst
+
+    FinancialAnalyst:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon SageMaker AI"
+      Title: "Financial Analyst\n(Claude Haiku)"
+
+    CompetitiveAnalyst:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon SageMaker AI"
+      Title: "Competitive Analyst\n(Claude Haiku)"
+
+    InnovationPhase:
+      Type: AWS::Diagram::VerticalStack
+      Title: "Phase 2: Innovation"
+      Children:
+        - InnovationAgent
+
+    InnovationAgent:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon SageMaker AI"
+      Title: "Innovation Agent\n(Claude Sonnet)\nTemp=0.7"
+
+    ChatPhase:
+      Type: AWS::Diagram::VerticalStack
+      Title: "Phase 3: Chat"
+      Children:
+        - ChatAgent
+
+    ChatAgent:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon SageMaker AI"
+      Title: "Chat Agent\n(Claude Sonnet)\nSlidingWindow Memory"
+
+    # --- Bedrock Model Layer ---
+    ModelRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - BedrockHaiku
+        - BedrockSonnet
+
+    BedrockHaiku:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Bedrock"
+      Title: "Claude 3 Haiku\n(Research)"
+
+    BedrockSonnet:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Bedrock"
+      Title: "Claude Sonnet 4\n(Orchestration/Innovation/Chat)"
+
+    # =========================================
+    # COLUMN 4 — Tools (external services)
+    # =========================================
+    ToolsColumn:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - DuckDuckGoAPI
+        - WebSearchTool
+        - CalculatorTool
+
+    DuckDuckGoAPI:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Tools and SDKs"
+      Title: "DuckDuckGo API\n(HTTPS Only)"
+
+    WebSearchTool:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Tools and SDKs"
+      Title: "Web Search Tool\n(web_search.py)"
+
+    CalculatorTool:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Tools and SDKs"
+      Title: "Calculator Tool\n(tool_handler.py)"
+
+  # =========================================
+  # Connections (left → right flow)
+  # =========================================
+  Links:
+    # User -> Client
+    - Source: UserActor
+      SourcePosition: E
+      Target: ClientApp
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    # Client -> Request Router
+    - Source: ClientApp
+      SourcePosition: E
+      Target: RequestRouter
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    # Request Router -> Analyst Orchestrator (analyze mode)
+    - Source: RequestRouter
+      SourcePosition: S
+      Target: AnalystOrchestrator
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+
+    # Request Router -> Chat Agent (chat mode, dashed)
+    - Source: RequestRouter
+      SourcePosition: SSE
+      Target: ChatAgent
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      LineStyle: dashed
+
+    # Analyst Orchestrator -> Sub-Agents
+    - Source: AnalystOrchestrator
+      SourcePosition: S
+      Target: FinancialAnalyst
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+
+    - Source: AnalystOrchestrator
+      SourcePosition: S
+      Target: CompetitiveAnalyst
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+
+    # Research -> Innovation (TAI Report)
+    - Source: AnalystOrchestrator
+      SourcePosition: E
+      Target: InnovationAgent
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    # Innovation -> Chat (Context)
+    - Source: InnovationAgent
+      SourcePosition: E
+      Target: ChatAgent
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    # Sub-Agents -> Bedrock Models
+    - Source: FinancialAnalyst
+      SourcePosition: S
+      Target: BedrockHaiku
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+
+    - Source: CompetitiveAnalyst
+      SourcePosition: S
+      Target: BedrockHaiku
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+
+    - Source: AnalystOrchestrator
+      SourcePosition: S
+      Target: BedrockSonnet
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+
+    - Source: InnovationAgent
+      SourcePosition: S
+      Target: BedrockSonnet
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+
+    - Source: ChatAgent
+      SourcePosition: S
+      Target: BedrockSonnet
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+
+    # IAM -> Router (dashed)
+    - Source: IAMRole
+      SourcePosition: S
+      Target: RequestRouter
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      LineStyle: dashed
+
+    # Router -> CloudWatch (dashed)
+    - Source: RequestRouter
+      SourcePosition: N
+      Target: CloudWatch
+      TargetPosition: S
+      TargetArrowHead:
+        Type: Open
+      LineStyle: dashed
+
+    # ECR -> Router (dashed)
+    - Source: ECRRepo
+      SourcePosition: S
+      Target: RequestRouter
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      LineStyle: dashed
+
+    # Sub-Agents -> External Tools (right side)
+    - Source: FinancialAnalyst
+      SourcePosition: E
+      Target: DuckDuckGoAPI
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    - Source: CompetitiveAnalyst
+      SourcePosition: E
+      Target: WebSearchTool
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+
+    - Source: ChatAgent
+      SourcePosition: E
+      Target: CalculatorTool
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
