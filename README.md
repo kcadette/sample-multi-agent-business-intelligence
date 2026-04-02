@@ -37,7 +37,15 @@ After analysis, a **Chat Agent** lets you ask follow-up questions against the re
 ├── SECURITY_MATRIX.md           # DSR security assessment matrix
 ├── LICENSE.txt                  # License file
 ├── architecture-diagram.yaml    # Architecture diagram (awsdac format)
-└── architecture-diagram.png     # Rendered architecture diagram
+├── architecture-diagram.png     # Rendered architecture diagram
+├── security/                    # Sample IAM policies, VPC, DNS Firewall configs
+│   ├── T05-bedrock-guardrail.sh       # Bedrock Guardrail creation script
+│   ├── T07-vpc-security-group.sh      # VPC egress restriction + VPC endpoints
+│   ├── T08-dns-firewall.sh            # Route 53 DNS Firewall setup
+│   ├── T10-iam-resource-policy.json   # IAM resource policy for AgentCore
+│   ├── T10-iam-caller-policy.json     # Least-privilege caller role policy
+│   └── T10-iam-task-role-policy.json  # Least-privilege task role policy
+└── Threat Model Review - Mar 31/     # ThreatForest report + threat model analysis
 ```
 
 ## Quick Start — Local
@@ -97,7 +105,7 @@ agentcore launch --local
 # Test with curl
 curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
-  -d '{"mode": "analyze", "company": "Salesforce", "session_id": "test1"}'
+  -d '{"mode": "analyze", "company": "Salesforce", "client_id": "test-client-1"}'
 ```
 
 ## Using the CLI Client
@@ -157,11 +165,13 @@ After running an analysis, try these in chat mode:
 {
   "mode": "analyze",
   "company": "Acme Corp",
-  "session_id": "unique-session-id"
+  "client_id": "your-unique-client-identifier"
 }
 ```
 
 Returns: `tai_report`, `opportunity_report`, `session_id`
+
+**Note:** `client_id` is **required** on all requests. The server generates a cryptographic `session_id` — use the returned value for chat follow-ups. Company names are validated (alphanumeric + basic punctuation, max 200 chars).
 
 ### Chat mode
 
@@ -169,11 +179,14 @@ Returns: `tai_report`, `opportunity_report`, `session_id`
 {
   "mode": "chat",
   "message": "Tell me more about opportunity #3",
-  "session_id": "same-session-id-from-analyze"
+  "session_id": "session-id-from-analyze-response",
+  "client_id": "same-client-id-used-for-analyze"
 }
 ```
 
 Returns: `response`, `session_id`
+
+**Note:** Sessions are bound to the `client_id` that created them. Chat messages are capped at 2000 characters.
 
 ## Architecture
 
@@ -391,13 +404,20 @@ The task IAM role needs permission to use the guardrail. Add this to your IAM po
 
 ### How It Works
 
-The system applies three layers of defense against prompt injection and harmful content:
+The system applies six layers of defense against prompt injection and harmful content:
 
 | Layer | What It Does | Where |
 |-------|-------------|-------|
-| **Bedrock Guardrails** | AWS-managed content filter — inspects all LLM inputs and outputs for harmful content, PII, prompt attacks, and denied topics | Applied to all 3 BedrockModel instances (`main.py:140-142`) |
-| **Prompt Injection Filter** | Regex-based pattern filter — strips known injection patterns (e.g., "ignore previous instructions", fake `[INST]`/`<system>` tags) from external content | Applied to web search results (`main.py:133`) and chat input (`main.py:383`) |
-| **Input Sanitization** | Character allowlist — restricts company name to alphanumeric + basic punctuation | Applied to analyze mode input (`main.py:57-64`) |
+| **Bedrock Guardrails** | AWS-managed content filter — inspects all LLM inputs and outputs for harmful content, PII, prompt attacks, and denied topics | Applied to all 3 BedrockModel instances (`main.py:170-173`) |
+| **Prompt Injection Filter** | Regex-based pattern filter — strips 7 known injection patterns (e.g., "ignore previous instructions", fake `[INST]`/`<system>` tags) from external content | Applied to web search results, chat input, sub-agent output, innovation output, and report content before chat prompt injection |
+| **Structural Boundary Markers** | XML-like tags (`<search_result_data>`, `<agent_output>`, `<report_data>`) that structurally separate untrusted data from LLM instructions | Applied at search, sub-agent, and chat prompt boundaries |
+| **Input Sanitization** | Character allowlist — restricts company name to alphanumeric + basic punctuation, max 200 chars | Applied to analyze mode input (`main.py:58-65`) |
+| **Length Caps** | Search queries capped at 200 chars (prevents data exfiltration), chat messages at 2000 chars, search responses at 8KB, sub-agent output at 20KB | Applied at each trust boundary |
+| **Session Security** | Cryptographic session IDs, session-to-client binding, required client_id, rate limiting with stale key cleanup | Applied at request handler level |
+
+### Infrastructure Security Configs
+
+Sample IAM policies, VPC configs, and DNS Firewall scripts are provided in the `security/` directory for production deployment hardening. See `security/README.md` for details.
 
 ### Environment Variables Reference
 
