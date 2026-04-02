@@ -1,0 +1,43 @@
+{
+  "_comment": "T10 — IAM resource policy to restrict who can invoke the AgentCore runtime.",
+  "_usage": "Attach this policy to the AgentCore runtime via AWS CLI or console. Replace placeholder values.",
+  "_threat": "Without this policy, any AWS principal with bedrock-agentcore:InvokeAgentRuntime permission and the runtime ARN can invoke the endpoint.",
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowScopedInvocation",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::<ACCOUNT_ID>:role/<ALLOWED_CALLER_ROLE>"
+        ]
+      },
+      "Action": "bedrock-agentcore:InvokeAgentRuntime",
+      "Resource": "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/<RUNTIME_ID>",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        },
+        "IpAddress": {
+          "aws:SourceIp": [
+            "<ALLOWED_CIDR_1>",
+            "<ALLOWED_CIDR_2>"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllOthers",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "bedrock-agentcore:InvokeAgentRuntime",
+      "Resource": "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/<RUNTIME_ID>",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::<ACCOUNT_ID>:role/<ALLOWED_CALLER_ROLE>"
+        }
+      }
+    }
+  ]
+}

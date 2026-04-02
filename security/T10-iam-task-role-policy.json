@@ -1,0 +1,56 @@
+{
+  "_comment": "T10/IAM1/IAM6 — Least-privilege IAM policy for the AgentCore runtime's own task role.",
+  "_usage": "Attach to the IAM task role assumed by the AgentCore container at runtime. Replace placeholder values.",
+  "_note": "Includes IAM6 condition keys (aws:RequestedRegion, aws:SourceVpc) to restrict Bedrock access scope.",
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockInvokeModel",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:<REGION>::foundation-model/us.anthropic.claude-3-haiku-20240307-v1:0",
+        "arn:aws:bedrock:<REGION>::foundation-model/us.anthropic.claude-sonnet-4-20250514-v1:0"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        }
+      }
+    },
+    {
+      "Sid": "BedrockApplyGuardrail",
+      "Effect": "Allow",
+      "Action": "bedrock:ApplyGuardrail",
+      "Resource": "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:guardrail/<GUARDRAIL_ID>",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<REGION>"
+        }
+      }
+    },
+    {
+      "Sid": "AgentCoreOwnRuntime",
+      "Effect": "Allow",
+      "Action": "bedrock-agentcore:*",
+      "Resource": "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/<RUNTIME_ID>"
+    },
+    {
+      "Sid": "ECRAuth",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/agentcore/<RUNTIME_ID>:*"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "_comment": "T10 — Least-privilege IAM policy for the caller role that invokes the AgentCore runtime.",
+  "_usage": "Attach this policy to the IAM role used by the client (e.g., developer workstation role, CI/CD role). Replace placeholder values.",
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeSpecificRuntime",
+      "Effect": "Allow",
+      "Action": "bedrock-agentcore:InvokeAgentRuntime",
+      "Resource": "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/<RUNTIME_ID>"
+    }
+  ]
+}

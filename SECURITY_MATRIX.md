@@ -2,7 +2,7 @@
 
 **Project Name:** Multi-Agent Business Intelligence (NeoLifter)
 **DSR Template Version:** 6af7b7c (dsr-2025-11-19)
-**Assessment Date:** 2026-03-27
+**Assessment Date:** 2026-04-02
 **AWS Services In Use:** Bedrock, Bedrock AgentCore, IAM, ECR, CloudWatch (via OpenTelemetry)
 
 ---
@@ -34,15 +34,15 @@
 
 | ID | Question | Release Blocker | Status | Evidence |
 |----|----------|----------------|--------|----------|
-| **SC1** | Solution immune from OWASP Top 10 | Yes | **Mitigated** | Input validation (`main.py:57-64`), SSRF protection with URL allowlist (`main.py:67-78`), no SQL/NoSQL, no user-rendered HTML (no XSS surface), rate limiting (`main.py:318-330`), prompt injection filtering (`main.py:95-115`). |
+| **SC1** | Solution immune from OWASP Top 10 | Yes | **Mitigated** | Input validation (`main.py:58-65`), SSRF protection with URL allowlist (`main.py:68-79`), no SQL/NoSQL, no user-rendered HTML (no XSS surface), rate limiting (`main.py:354-377`), prompt injection filtering (`main.py:97-116`), search query length cap (`main.py:135-140`), chat message length cap (`main.py:433-434`), required `client_id` (`main.py:385-388`). |
 | **SC2** | No unauthorized cross-account/region data movement | Yes | **Mitigated** | All processing stays within single region. `client.py:35` defaults to `us-west-2`. Bedrock models use same-region inference. No S3 cross-region replication. |
-| **SC3** | Secrets managed via secrets management service | Yes | **Mitigated** | No hardcoded secrets. AWS credentials provided via IAM task roles at runtime (`Dockerfile:12-14`). Session IDs generated cryptographically (`main.py:357`). |
+| **SC3** | Secrets managed via secrets management service | Yes | **Mitigated** | No hardcoded secrets. AWS credentials provided via IAM task roles at runtime (`Dockerfile:12-14`). Session IDs generated cryptographically (`main.py:407`). |
 | **SC4** | No hardcoded secrets, keys, or passwords | Yes | **Mitigated** | Grep confirms zero hardcoded credentials. `Dockerfile:12-14` explicitly documents runtime credential injection via IAM roles. No `.env` files committed (`.gitignore` blocks them). |
-| **SC5** | Solution tested in test environment with prod-level logging | Yes | **Mitigated** | Structured audit logging (`main.py:29-31`). OpenTelemetry instrumentation (`Dockerfile:10,33`). No PII logged — only sanitized company names, session IDs, and error codes. |
+| **SC5** | Solution tested in test environment with prod-level logging | Yes | **Mitigated** | Structured audit logging (`main.py:30-32`). OpenTelemetry instrumentation (`Dockerfile:10,36`). No PII logged — only sanitized company names, session IDs, and error codes. |
 | **SC6** | Solution does not modify existing network ACLs/security groups | No | **Mitigated** | Solution runs as a containerized AgentCore runtime. Does not create, modify, or delete any network resources. No VPC/SG/NACL mutations. |
-| **SC7** | X-Ray/tracing enabled for service integrations | No | **Mitigated** | OpenTelemetry instrumentation enabled via `aws-opentelemetry-distro` (`Dockerfile:10`). Entry point wraps with `opentelemetry-instrument` (`Dockerfile:33`). |
+| **SC7** | X-Ray/tracing enabled for service integrations | No | **Mitigated** | OpenTelemetry instrumentation enabled via `aws-opentelemetry-distro` (`Dockerfile:10`). Entry point wraps with `opentelemetry-instrument` (`Dockerfile:36`). |
 | **SC8** | Security code scanners used, Critical/High remediated | Yes | **Mitigated** | ASH (Automated Security Helper) scan completed. Findings remediated per commit `8d71645`. Threat model findings remediated per commit `b5eedd4`. Guardrails added per commit `0278968`. |
-| **SC9** | Project will not handle regulated data (PCI/HIPAA/GDPR) | Yes | **Mitigated** | Solution performs public web searches and LLM-based analysis only. No customer PII, PHI, or payment data processed or stored. Bedrock Guardrails PII filters provide additional protection (`main.py:34-53`). |
+| **SC9** | Project will not handle regulated data (PCI/HIPAA/GDPR) | Yes | **Mitigated** | Solution performs public web searches and LLM-based analysis only. No customer PII, PHI, or payment data processed or stored. Bedrock Guardrails PII filters provide additional protection (`main.py:35-54`). |
 | **SC10** | No sharing of binaries/container images/external libraries in deliverable | Yes | **Not Mitigated** | Container image is built and pushed to ECR as part of `agentcore launch`. **Action required:** Confirm with customer that ECR image delivery model is acceptable, or provide source-only delivery. |
 
 ### IDEMPOTENCY AND RESOURCE INTEGRITY
@@ -60,9 +60,9 @@
 | ID | Question | Release Blocker | Status | Evidence |
 |----|----------|----------------|--------|----------|
 | **EN1** | Data at rest encrypted with AWS managed or customer keys | No | **Mitigated** | No persistent data stored. ECR images encrypted at rest by default. CloudWatch logs encrypted with service-managed keys. |
-| **EN2** | Data in transit encrypted for all services | No | **Mitigated** | All external calls use HTTPS only (`main.py:76` enforces HTTPS). Bedrock API calls use TLS. AgentCore runtime uses TLS for client connections. |
+| **EN2** | Data in transit encrypted for all services | No | **Mitigated** | All external calls use HTTPS only (`main.py:77` enforces HTTPS). Bedrock API calls use TLS. AgentCore runtime uses TLS for client connections. |
 | **EN3** | VPC endpoints for serverless-to-VPC communication | No | **Mitigated** | AgentCore runtime runs in managed infrastructure. Bedrock API calls go through AWS service endpoints (TLS-encrypted). No custom VPC required for current deployment model. |
-| **EN4** | Reviewed customer need for encrypting sensitive data at rest | Yes | **Mitigated** | No sensitive data persisted at rest. In-memory session store (`main.py:274-312`) with 1-hour TTL and LRU eviction. All data is ephemeral. |
+| **EN4** | Reviewed customer need for encrypting sensitive data at rest | Yes | **Mitigated** | No sensitive data persisted at rest. In-memory session store (`main.py:310-351`) with 1-hour TTL and LRU eviction. All data is ephemeral. |
 
 ---
 
@@ -82,8 +82,8 @@
 
 | ID | Question | Release Blocker | Status | Evidence |
 |----|----------|----------------|--------|----------|
-| **CW1** | Log only non-sensitive data to CloudWatch | Yes | **Mitigated** | Audit logger (`main.py:29-31`) logs only: mode, sanitized client_id, session_id (hex token), error codes. No PII, credentials, or request/response bodies logged. Company name truncated to 50 chars in warning logs (`main.py:353`). |
-| **CW2** | CloudWatch Alarms on exceptional resource usage | No | **Mitigated** | OpenTelemetry (`Dockerfile:10,33`) exports metrics, traces, and logs. CloudWatch alarms can be configured on AgentCore runtime metrics. |
+| **CW1** | Log only non-sensitive data to CloudWatch | Yes | **Mitigated** | Audit logger (`main.py:30-32`) logs only: mode, sanitized client_id, session_id (hex token), error codes. No PII, credentials, or request/response bodies logged. Company name truncated to 50 chars in warning logs (`main.py:403`). |
+| **CW2** | CloudWatch Alarms on exceptional resource usage | No | **Mitigated** | OpenTelemetry (`Dockerfile:10,36`) exports metrics, traces, and logs. CloudWatch alarms can be configured on AgentCore runtime metrics. |
 | **CFN2** | CloudFormation input parameters restricted to non-sensitive data | Yes | **Mitigated** | No CloudFormation templates used directly. AgentCore manages infrastructure. No sensitive parameters in deployment configuration. |
 
 > **Not in scope:** CloudTrail (CT1), Auto Scaling, SSM Automation — services not used.
@@ -94,10 +94,10 @@
 
 | ID | Question | Release Blocker | Status | Evidence |
 |----|----------|----------------|--------|----------|
-| **BDR1** | Bedrock model access restricted via IAM policies | Yes | **Mitigated** | Model access controlled via IAM task role. Only specific model IDs invoked: `claude-3-haiku`, `claude-sonnet-4` (`main.py:143-145`). |
+| **BDR1** | Bedrock model access restricted via IAM policies | Yes | **Mitigated** | Model access controlled via IAM task role. Only specific model IDs invoked: `claude-3-haiku`, `claude-sonnet-4` (`main.py:171-173`). |
 | **BDR2** | Bedrock inference uses least-privilege IAM role | Yes | **Mitigated** | Task IAM role grants only `bedrock:InvokeModel` for specific model ARNs and `bedrock:ApplyGuardrail` for the guardrail ARN. No `bedrock:*` wildcards. |
-| **BDR3** | Bedrock model invocation logging enabled | No | **Mitigated** | AgentCore runtime logs all invocations. OpenTelemetry traces capture Bedrock API calls. Audit logger records request mode, session, and timing (`main.py:339`, `main.py:359`, `main.py:394`). |
-| **BDR4** | Prompt injection mitigations in place | Yes | **Mitigated** | Three-layer defense: (1) Bedrock Guardrails applied to all 3 models via `BEDROCK_GUARDRAIL_ID`/`BEDROCK_GUARDRAIL_VERSION` env vars with input+output redaction (`main.py:34-53`, `main.py:141-145`); (2) Prompt injection pattern filter strips 7 known injection patterns from web search results (`main.py:133`) and chat input (`main.py:383-384`); (3) Input sanitization restricts company name characters (`main.py:57-64`). |
+| **BDR3** | Bedrock model invocation logging enabled | No | **Mitigated** | AgentCore runtime logs all invocations. OpenTelemetry traces capture Bedrock API calls. Audit logger records request mode, session, and timing (`main.py:389`, `main.py:409`, `main.py:454`). |
+| **BDR4** | Prompt injection mitigations in place | Yes | **Mitigated** | Six-layer defense: (1) Bedrock Guardrails applied to all 3 models (`main.py:35-54`, `main.py:170-173`); (2) Prompt injection filter on web search results (`main.py:148`), chat input (`main.py:437`), sub-agent output (`main.py:165`), innovation output (`main.py:297`), and report content before chat prompt injection (`main.py:301-302`); (3) Structural boundary markers: `<search_result_data>` (`main.py:93`), `<agent_output>` (`main.py:166`), `<report_data>` (`main.py:264-275`); (4) Input sanitization restricts company name characters (`main.py:58-65`); (5) Search query length cap 200 chars (`main.py:135-140`) and chat message length cap 2000 chars (`main.py:433-434`); (6) Rate limiter with stale key cleanup prevents resource exhaustion (`main.py:354-377`). |
 
 > **Not in scope:** SageMaker (SAGE1-SAGE12), Comprehend, Lex, Rekognition, Textract, Personalize — services not used.
 
@@ -141,7 +141,15 @@ The following DSR sections are **entirely out of scope** — none of their servi
 | Priority | ID | Action | Owner | Status |
 |----------|-----|--------|-------|--------|
 | ~~**HIGH**~~ | ~~BDR4~~ | ~~Enable Bedrock Guardrails for prompt injection and content filtering on all agent invocations~~ | Dev Team | **Closed** |
-| **MEDIUM** | IAM6 | Add IAM policy conditions (`aws:SourceVpc`, `aws:RequestedRegion`) to restrict Bedrock model access | Dev Team | Open |
+| ~~**HIGH**~~ | ~~T01-T04~~ | ~~Remediate prompt injection chain: search sanitization, sub-agent output validation, chat prompt hardening~~ | Dev Team | **Closed** |
+| ~~**HIGH**~~ | ~~T06~~ | ~~Bind session to caller identity~~ | Dev Team | **Closed** |
+| ~~**MEDIUM**~~ | ~~T09~~ | ~~Require client_id, reject anonymous requests~~ | Dev Team | **Closed** |
+| ~~**MEDIUM**~~ | ~~T02~~ | ~~Rotate User-Agent per request~~ | Dev Team | **Closed** |
+| ~~**MEDIUM**~~ | ~~T11-T13~~ | ~~Reduce conversation window, add message/query length caps~~ | Dev Team | **Closed** |
+| **HIGH** | T10 | Apply IAM resource policy to restrict AgentCore invocation to specific principals. Sample: `security/T10-iam-resource-policy.json` | Infra Team | Open |
+| **MEDIUM** | IAM6 | Add IAM policy conditions (`aws:RequestedRegion`) to restrict Bedrock access scope. Sample: `security/T10-iam-task-role-policy.json` | Infra Team | Open |
+| **MEDIUM** | T07 | Deploy container in VPC with egress-restricted Security Group + VPC endpoints. Sample: `security/T07-vpc-security-group.sh` | Infra Team | Open |
+| **MEDIUM** | T08 | Configure Route 53 DNS Firewall with allowlist-only resolution. Sample: `security/T08-dns-firewall.sh` | Infra Team | Open |
 | **LOW** | SC10 | Confirm with customer that ECR container image delivery model is acceptable, or switch to source-only delivery | Project Lead | Open |
 
 ---
@@ -150,15 +158,24 @@ The following DSR sections are **entirely out of scope** — none of their servi
 
 | Control | Implementation | File:Line |
 |---------|---------------|-----------|
-| Bedrock Guardrails | Configurable via env vars, input+output redaction. See [README: Security — Bedrock Guardrails](README.md#security--bedrock-guardrails) for setup | `main.py:34-53` |
-| Prompt Injection Filter | 7 regex patterns strip injection attacks from web search results and chat input | `main.py:95-115` |
-| Input Validation | Regex allowlist, 200 char length limit on company name | `main.py:57-64` |
-| SSRF Protection | URL allowlist (api.duckduckgo.com only), HTTPS-only enforcement | `main.py:67-78` |
-| Response Validation | JSON format check, 50KB truncation on web search results | `main.py:81-92` |
-| Cryptographic Session IDs | `secrets.token_hex(16)` — server-side, unpredictable | `main.py:357` |
-| Rate Limiting | 5 req/min per client, sliding window | `main.py:318-330` |
-| Session Bounding | Max 100 sessions, 1hr TTL, LRU eviction | `main.py:274-312` |
-| Audit Logging | Structured logs with timestamps and severity | `main.py:29-31` |
+| Bedrock Guardrails | Configurable via env vars, input+output redaction. See [README: Security — Bedrock Guardrails](README.md#security--bedrock-guardrails) for setup | `main.py:35-54` |
+| Prompt Injection Filter | 7 regex patterns strip injection attacks from web search results, chat input, sub-agent output, and innovation output | `main.py:97-116` |
+| User-Agent Rotation | Randomized User-Agent per request from a pool to prevent service fingerprinting | `main.py:120-124`, `main.py:144` |
+| Input Validation | Regex allowlist, 200 char length limit on company name | `main.py:58-65` |
+| SSRF Protection | URL allowlist (api.duckduckgo.com only), HTTPS-only enforcement | `main.py:68-79` |
+| Response Validation | JSON format check, 8KB truncation + structural `<search_result_data>` boundary markers | `main.py:83-93` |
+| Search Query Length Cap | 200-char limit on web search queries to prevent data exfiltration via query params | `main.py:135-140` |
+| Sub-Agent Output Validation | Truncation (20KB), prompt injection filtering, `<agent_output>` boundary markers | `main.py:157-166` |
+| Innovation Output Filtering | Prompt injection filter applied to Innovation Agent output before session storage | `main.py:297` |
+| Chat Prompt Hardening | `<report_data>` boundary markers + injection filtering on reports before system prompt injection | `main.py:264-278`, `main.py:300-307` |
+| Chat Message Length Cap | 2000-char limit on chat messages to limit multi-turn context poisoning | `main.py:433-434` |
+| Conversation Window | Reduced to 20-turn sliding window to limit context poisoning surface | `main.py:306` |
+| Cryptographic Session IDs | `secrets.token_hex(16)` — server-side, unpredictable | `main.py:407` |
+| Session Ownership Binding | Sessions bound to `owner_client_id` at creation; validated on every chat request | `main.py:418`, `main.py:450-452` |
+| Required Client ID | Requests without `client_id` are rejected; no anonymous fallback | `main.py:385-388` |
+| Rate Limiting | 5 req/min per client, sliding window, periodic stale key cleanup | `main.py:354-377` |
+| Session Bounding | Max 100 sessions, 1hr TTL, LRU eviction | `main.py:310-351` |
+| Audit Logging | Structured logs with timestamps and severity | `main.py:30-32` |
 | Non-root Container | UID 1000 `bedrock_agentcore` user | `Dockerfile:23-24` |
 | Health Check | HTTP `/health` endpoint with 30s interval | `Dockerfile:33-34` |
 | OpenTelemetry Tracing | `aws-opentelemetry-distro` wraps all execution | `Dockerfile:10,36` |
@@ -166,3 +183,7 @@ The following DSR sections are **entirely out of scope** — none of their servi
 | Copyright Headers | Present on all source files | `main.py:1`, `Dockerfile:1`, `client.py:1` |
 | No Hardcoded Secrets | Runtime IAM role injection, `.gitignore` blocks `.env` | `Dockerfile:12-17` |
 | .gitignore | Prevents `.env`, `.DS_Store`, `__pycache__/`, `.ash/`, `.claude/`, `build/` from commit | `.gitignore` |
+| Sample IAM Policies | Least-privilege IAM policies for task role, caller role, and resource policy | `security/T10-*.json` |
+| Sample VPC Egress Config | Security group egress restriction + VPC endpoint creation script | `security/T07-vpc-security-group.sh` |
+| Sample DNS Firewall Config | Route 53 Resolver DNS Firewall with allowlist-only resolution | `security/T08-dns-firewall.sh` |
+| Sample Guardrail Setup | Bedrock Guardrail creation script with prompt injection + PII policies | `security/T05-bedrock-guardrail.sh` |

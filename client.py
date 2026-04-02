@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import uuid
@@ -48,6 +49,9 @@ def main():
         parser.error("Provide --agent-arn or set AGENTCORE_ARN env var")
     client = boto3.client("bedrock-agentcore", region_name=args.region, config=BOTO_CONFIG)
 
+    # Derive a stable client_id from the agent ARN and local machine identity
+    client_id = hashlib.sha256(f"{agent_arn}:{os.getlogin()}".encode()).hexdigest()[:32]
+
     if args.command == "analyze":
         session_id = str(uuid.uuid4()).replace("-", "") + "x"  # 33+ chars required
         print(f"Session: {session_id}")
@@ -56,14 +60,15 @@ def main():
         result = invoke_agent(client, agent_arn, session_id, {
             "mode": "analyze",
             "company": args.company,
-            "session_id": session_id,
+            "client_id": client_id,
         })
 
+        server_session_id = result.get("session_id", session_id)
         print("=== TAI REPORT ===")
         print(result.get("tai_report", ""))
         print("\n=== OPPORTUNITY REPORT ===")
         print(result.get("opportunity_report", ""))
-        print(f"\nTo chat: python client.py chat --session {session_id}")
+        print(f"\nTo chat: python client.py chat --session {server_session_id}")
 
     elif args.command == "chat":
         if args.message:
@@ -71,6 +76,7 @@ def main():
                 "mode": "chat",
                 "message": args.message,
                 "session_id": args.session,
+                "client_id": client_id,
             })
             print(result.get("response", result.get("error", "")))
         else:
@@ -86,6 +92,7 @@ def main():
                     "mode": "chat",
                     "message": question,
                     "session_id": args.session,
+                    "client_id": client_id,
                 })
                 print(f"\nAdvisor: {result.get('response', result.get('error', ''))}\n")
     else:
